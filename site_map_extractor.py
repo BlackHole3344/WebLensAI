@@ -3,8 +3,11 @@ from bs4 import BeautifulSoup
 import requests
 import xml.etree.ElementTree as ET
 import logging
-
-# Configure logging
+import asyncio 
+import aiohttp   
+from collections import deque
+from crawl4ai import AsyncWebCrawler      
+#
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
@@ -20,87 +23,165 @@ ignore_urls = [
     "login", "signup", "whatsapp", 
     "facebook", "twitter", "linkedin", 
     "instagram", "youtube", "mailto:",
-    "tel:", "#"
+    "tel:", "#" , "javascript:"
 ]
 
 
 
 
 def is_content_url(url):
-    """Filter for likely content-rich pages"""
+    """Enhanced filter for content-rich pages"""
     
-    # Paths that likely contain actual content
     content_indicators = [
-        '/article/', '/post/', '/blog/', 
+        '/article/', '/post/', '/blog/',
         '/guide/', '/tutorial/',
         '/about/', '/page/', '/content/',
         '/courses/', '/faculty/', '/department/',
         '/research/', '/publication/',
-        '/news/', '/events/'
+        '/news/', '/events/',
+        '/academics/', '/admission/',
+        '/programs/', '/curriculum/',
+        '/syllabus/', '/handbook/',
+        '/contact/', '/location/',
+        '/careers/', '/jobs/',
+        '/faq/', '/help/', '/support/',
+        '/policy/', '/terms/', '/privacy/',
+        '/press/', '/media/', '/announcements/',
+        '/projects/', '/portfolio/',
+        '/services/', '/solutions/',
+        '/team/', '/staff/', '/people/',
+        '/overview/', '/details/', '/description/'
     ]
     
-    # Paths to exclude (typically non-content pages)
     exclude_paths = [
+        # CMS and Admin
         '/tag/', '/category/', '/author/',
         '/search/', '/page/', '/wp-content/',
         '/feed/', '/rss/', '/sitemap/',
         '/cart/', '/checkout/', '/account/',
         '/login/', '/register/', '/signup/',
         '/wp-admin/', '/wp-includes/',
+        '/wp-json/', '/wp-cron/', '/wp-login/',
+        '/administrator/', '/admin/', '/cpanel/',
+        '/dashboard/', '/manage/', '/control/',
+        
+        # Assets and Resources
         '/assets/', '/images/', '/css/', '/js/',
         '/api/', '/cdn-cgi/', '/comment/',
         '/archive/', '/month/', '/date/',
-        '/shop/', '/product/', '/cart/'
+        '/shop/', '/product/', '/cart/',
+        '/fonts/', '/dist/', '/build/',
+        '/temp/', '/tmp/', '/cache/',
+        '/uploads/', '/download/', '/files/',
+        '/thumb/', '/thumbnail/', '/preview/',
+        '/banner/', '/slider/', '/carousel/',
+        '/static/', '/media/', '/resources/',
+        
+        # User Interaction
+        '/comment/', '/reply/', '/responses/',
+        '/like/', '/share/', '/favorite/',
+        '/rating/', '/review/', '/feedback/',
+        '/submit/', '/form/', '/contact-form/',
+        
+        # Social and External
+        '/social/', '/community/', '/forum/',
+        '/chat/', '/message/', '/notification/',
+        '/profile/', '/user/', '/member/',
+        '/auth/', '/oauth/', '/sso/',
+        
+        # Temporary and System
+        '/temp/', '/cache/', '/backup/',
+        '/log/', '/logs/', '/status/',
+        '/test/', '/testing/', '/debug/',
+        '/demo/', '/sample/', '/example/',
+        
+        # eCommerce
+        '/cart/', '/basket/', '/checkout/',
+        '/order/', '/payment/', '/transaction/',
+        '/invoice/', '/receipt/', '/shipping/',
+        
+        # Tracking and Analytics
+        '/track/', '/analytics/', '/stats/',
+        '/pixel/', '/beacon/', '/tracking/',
+        '/counter/', '/hit/', '/click/'
     ]
     
-    # File extensions to exclude
     exclude_extensions = [
-        '.jpg', '.jpeg', '.png', '.gif', '.pdf',
-        '.doc', '.docx', '.ppt', '.pptx',
-        '.zip', '.rar', '.css', '.js', '.xml',
-        '.ico', '.svg', '.woff', '.ttf'
+        # Documents
+        '.pdf', '.doc', '.docx', '.txt', '.rtf',
+        '.ppt', '.pptx', '.xls', '.xlsx', '.csv',
+        '.odt', '.ods', '.odp', '.pages', '.numbers',
+        '.key', '.epub', '.mobi',
+        
+        # Images
+        '.jpg', '.jpeg', '.png', '.gif', '.bmp',
+        '.svg', '.webp', '.tiff', '.ico', '.psd',
+        '.ai', '.eps',
+        
+        # Audio/Video
+        '.mp3', '.wav', '.ogg', '.m4a', '.wma',
+        '.mp4', '.avi', '.mov', '.wmv', '.flv',
+        '.webm', '.mkv', '.m4v',
+        
+        # Archives
+        '.zip', '.rar', '.7z', '.tar', '.gz',
+        '.bz2', '.iso',
+        
+        # Web Assets
+        '.css', '.js', '.jsx', '.ts', '.tsx',
+        '.json', '.xml', '.yaml', '.yml',
+        '.woff', '.woff2', '.ttf', '.eot',
+        '.map', '.min.js', '.min.css',
+        
+        # Configuration
+        '.conf', '.config', '.ini', '.env',
+        '.htaccess', '.htpasswd',
     ]
     
-    # Parameters to exclude
     exclude_params = [
         'page=', 'sort=', 'filter=', 'tag=',
-        'category=', 'lang=', 'ref=', 'source='
+        'category=', 'lang=', 'ref=', 'source=',
+        'utm_', 'fbclid=', 'gclid=', 'sid=',
+        'session=', 'token=', 'auth=', 'key=',
+        'id=', 'date=', 'version=', 'v=',
+        'format=', 'view=', 'layout=', 'type=',
+        'redirect=', 'return=', 'callback=',
+        'query=', 'search=', 'keywords=',
+        'limit=', 'offset=', 'start=', 'end=',
+        'from=', 'to=', 'dir=', 'order=',
+        'print=', 'download=', 'preview='
     ]
 
     url_lower = url.lower()
-    
-    # Check for excluded file extensions
+    parsed_url = urlparse(url)
+    path = parsed_url.path.lower()
+
+    # Check file extensions (more thorough check)
     if any(url_lower.endswith(ext) for ext in exclude_extensions):
         return False
-        
-    # Check for excluded parameters
+    
+    # Check if the URL contains any excluded parameters
     if any(param in url_lower for param in exclude_params):
         return False
         
-    # Check for excluded paths
+    # Check if URL contains excluded paths
     if any(path in url_lower for path in exclude_paths):
         return False
         
-    # Additional filters
-    parsed_url = urlparse(url)
-    path = parsed_url.path.lower()
-    
-    # Exclude if path is just a number (likely pagination)
+    # Reject numeric-only paths
     if path.strip('/').isdigit():
         return False
-    
-    # Exclude paths with too many segments (likely deep navigation)
-    if len(path.split('/')) > 5:
+        
+    # Reject paths that are too deep
+    if len(path.split('/')) > 4:  # Reduced from 5 to 4 for stricter filtering
         return False
-    
+        
     # Check for content indicators
     has_content_indicator = any(indicator in url_lower for indicator in content_indicators)
     
-    # If no content indicators found, check if it's a potential main section
     if not has_content_indicator:
-        # Count path segments (excluding empty ones)
+        # If no content indicators found, only accept very simple paths
         path_segments = [s for s in path.split('/') if s]
-        # Accept URLs with 0-2 path segments (like main sections)
         return len(path_segments) <= 2
         
     return True
@@ -108,7 +189,6 @@ def is_content_url(url):
 def filter_urls_for_knowledge_base(urls):
     """Filter and prioritize URLs for knowledge base creation"""
     filtered_urls = set()
-    
     for url in urls:
         if is_content_url(url):
             filtered_urls.add(url)
@@ -138,7 +218,7 @@ def extract_urls_from_xml(xml_content):
         urls = set()
         root = ET.fromstring(xml_content)
         
-        # Handle sitemap index
+      
         if 'sitemapindex' in root.tag:
             logging.info("Found sitemap index, processing sub-sitemaps...")
             for sitemap in root.findall('.//{*}loc'):
@@ -149,7 +229,7 @@ def extract_urls_from_xml(xml_content):
                         urls.update(sub_urls)
                 except Exception as e:
                     logging.warning(f"Failed to process sub-sitemap {sitemap.text}: {e}")
-        # Handle regular sitemap
+    
         else:
             for url in root.findall('.//{*}loc'):
                 urls.add(url.text)
@@ -203,26 +283,55 @@ def try_robots_txt(base_url):
     logging.info("No valid sitemap found in robots.txt")
     return set()
 
-def extract_hrefs(base_url):
+
+async def extract_urls_crawl(base_url):
+    with AsyncWebCrawler() as crawler: 
+        result = await crawler.arun(
+            url = base_url 
+        )  
+        if not result.success() :
+            raise RuntimeError
+        valid_links = []
+        for url in result.links : 
+            if url.get("text") and url.get("text").strip():  
+                links_info  = {
+                    "href" : url.get("href") , 
+                    "text" : url.get("text")
+                } 
+                if url.get("title") : 
+                    links_info["title"] = url.get("title")          
+                valid_links.append(links_info)                      
+        valid_links 
+        
+def extract_hrefs(base_url , current_depth , max_depth : int = 3 ):
     """Extract URLs from href attributes"""
     logging.info("Falling back to href extraction...")
     urls = set()
+    if current_depth > max_depth: 
+        return set()
     
     try:
+        possibile_divs = [
+        'menu', 'nav', 'navigation', 'sidebar',
+        'header', 'footer', 'main-menu', 'sub-menu',
+        'navbar', 'top-menu', 'side-menu', 'main-nav',
+        'sitemap', 'content-menu'
+        ]
         response = requests.get(base_url)
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, 'html.parser')
+            # links = soup.find_all(['a' , 'link'] , href = True) 
+            # links.extend(soup.find_all('script' , src = True))  
+            target_divs = soup.find_all('div', class_=possibile_divs)  
+            target_elements = soup.find_all(['nav', 'header', 'footer', 'aside'])
             
-            for link in soup.find_all('a'):
-                href = link.get('href')
+            for element in target_elements + target_divs:  
+                href = element.get('href')
                 if href:
-                    # Convert relative URLs to absolute
-                    if not href.startswith(('http://', 'https://')):
-                        href = urljoin(base_url, href)
-                    # Filter unwanted URLs
+                    full_url = urljoin(base_url, href)         
                     if (href.startswith(('https://', 'http://')) and
                         not any(url in href.lower() for url in ignore_urls) and
-                        is_same_domain(base_url, href)):
+                        base_url in full_url):
                         urls.add(href)
         
         logging.info(f"Found {len(urls)} URLs from href extraction")
@@ -236,30 +345,27 @@ def get_all_urls(base_url):
     logging.info(f"Starting URL extraction for: {base_url}")
     urls = set()
     
-    # Step 1: Try default sitemap locations
     urls = try_default_sitemaps(base_url)
     if urls:
         logging.info(f"Successfully found {len(urls)} URLs from default sitemap")
         return list(urls)
     
-    # Step 2: Try robots.txt
+
     urls = try_robots_txt(base_url)
     if urls:
         logging.info(f"Successfully found {len(urls)} URLs from robots.txt sitemap")
         return list(urls)
     
-    # Step 3: Fall back to href extraction
+  
     urls = extract_hrefs(base_url)
     logging.info(f"Final URL count: {len(urls)}")
     
     urls = filter_urls_for_knowledge_base(urls=urls)
     return list(urls)
 
-# Usage example
+
 if __name__ == "__main__":
     test_url = "https://example.com"  # Replace with your target website
-    urls = get_all_urls("https://www.redhenlab.org/")
-    
-    print(f"\nFound {len(urls)} unique URLs:")
-    for url in sorted(urls):
-        print(url)
+    urls = get_all_urls("https://ai.pydantic.dev/")
+    print(f"Found {len(urls)} URLs to crawl") 
+    print(urls[:100])
