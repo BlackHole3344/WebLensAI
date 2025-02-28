@@ -2,7 +2,6 @@ import asyncio
 from typing import List
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
 from crawl4ai.markdown_generation_strategy import DefaultMarkdownGenerator
-import requests
 from xml.etree import ElementTree
 from site_map_extractor import get_all_urls 
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode  
@@ -36,9 +35,7 @@ class Crawler :
                       session_id = session_id   
                   )
                   if result.success:
-                            print(f"Successfully crawled: {url}")
-                            
-                            
+                            print(f"Successfully crawled: {url}") 
                             crawled += 1              
                   else:
                      print(f"Failed: {url} - Error: {result.error_message}")

@@ -26,9 +26,6 @@ ignore_urls = [
     "tel:", "#" , "javascript:"
 ]
 
-
-
-
 def is_content_url(url):
     """Enhanced filter for content-rich pages"""
     
@@ -156,31 +153,20 @@ def is_content_url(url):
     parsed_url = urlparse(url)
     path = parsed_url.path.lower()
 
-    # Check file extensions (more thorough check)
+  
     if any(url_lower.endswith(ext) for ext in exclude_extensions):
         return False
-    
-    # Check if the URL contains any excluded parameters
     if any(param in url_lower for param in exclude_params):
         return False
-        
-    # Check if URL contains excluded paths
     if any(path in url_lower for path in exclude_paths):
         return False
-        
-    # Reject numeric-only paths
     if path.strip('/').isdigit():
         return False
-        
-    # Reject paths that are too deep
-    if len(path.split('/')) > 4:  # Reduced from 5 to 4 for stricter filtering
+    if len(path.split('/')) > 4:  
         return False
-        
-    # Check for content indicators
     has_content_indicator = any(indicator in url_lower for indicator in content_indicators)
     
-    if not has_content_indicator:
-        # If no content indicators found, only accept very simple paths
+    if not has_content_indicator: 
         path_segments = [s for s in path.split('/') if s]
         return len(path_segments) <= 2
         
@@ -229,7 +215,6 @@ def extract_urls_from_xml(xml_content):
                         urls.update(sub_urls)
                 except Exception as e:
                     logging.warning(f"Failed to process sub-sitemap {sitemap.text}: {e}")
-    
         else:
             for url in root.findall('.//{*}loc'):
                 urls.add(url.text)
@@ -285,11 +270,12 @@ def try_robots_txt(base_url):
 
 
 async def extract_urls_crawl(base_url):
-    with AsyncWebCrawler() as crawler: 
+        crawler = AsyncWebCrawler()
+        await crawler.start() 
         result = await crawler.arun(
             url = base_url 
         )  
-        if not result.success() :
+        if not result.success :
             raise RuntimeError
         valid_links = []
         for url in result.links : 
@@ -298,10 +284,12 @@ async def extract_urls_crawl(base_url):
                     "href" : url.get("href") , 
                     "text" : url.get("text")
                 } 
-                if url.get("title") : 
+                if url.get("title"): 
                     links_info["title"] = url.get("title")          
-                valid_links.append(links_info)                      
-        valid_links 
+        
+                valid_links.append(links_info) 
+        await crawler.close()                              
+        return valid_links 
         
 def extract_hrefs(base_url , current_depth , max_depth : int = 3 ):
     """Extract URLs from href attributes"""
@@ -320,8 +308,7 @@ def extract_hrefs(base_url , current_depth , max_depth : int = 3 ):
         response = requests.get(base_url)
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, 'html.parser')
-            # links = soup.find_all(['a' , 'link'] , href = True) 
-            # links.extend(soup.find_all('script' , src = True))  
+
             target_divs = soup.find_all('div', class_=possibile_divs)  
             target_elements = soup.find_all(['nav', 'header', 'footer', 'aside'])
             
@@ -345,6 +332,11 @@ def get_all_urls(base_url):
     logging.info(f"Starting URL extraction for: {base_url}")
     urls = set()
     
+    urls = asyncio.run(extract_urls_crawl(base_url=base_url))   
+    if urls : 
+        logging.info(f"Successfully found {len(urls)} URLs from crawl4ai")
+        return urls  
+    
     urls = try_default_sitemaps(base_url)
     if urls:
         logging.info(f"Successfully found {len(urls)} URLs from default sitemap")
@@ -365,7 +357,7 @@ def get_all_urls(base_url):
 
 
 if __name__ == "__main__":
-    test_url = "https://example.com"  # Replace with your target website
+    test_url = "https://example.com"  
     urls = get_all_urls("https://ai.pydantic.dev/")
     print(f"Found {len(urls)} URLs to crawl") 
     print(urls[:100])
