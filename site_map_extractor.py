@@ -270,8 +270,7 @@ def try_robots_txt(base_url):
 
 
 async def extract_urls_crawl(base_url):
-        crawler = AsyncWebCrawler()
-        await crawler.start() 
+    async with AsyncWebCrawler() as crawler: 
         result = await crawler.arun(
             url = base_url 
         )  
@@ -287,8 +286,7 @@ async def extract_urls_crawl(base_url):
                 if url.get("title"): 
                     links_info["title"] = url.get("title")          
         
-                valid_links.append(links_info) 
-        await crawler.close()                              
+                valid_links.append(links_info)                           
         return valid_links 
         
 def extract_hrefs(base_url , current_depth , max_depth : int = 3 ):
@@ -330,7 +328,7 @@ def extract_hrefs(base_url , current_depth , max_depth : int = 3 ):
 def get_all_urls(base_url):
     """Main function to get all URLs using different methods"""
     logging.info(f"Starting URL extraction for: {base_url}")
-    urls = set()
+    urls = []
     
     urls = asyncio.run(extract_urls_crawl(base_url=base_url))   
     if urls : 
